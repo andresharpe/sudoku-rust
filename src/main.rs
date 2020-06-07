@@ -158,7 +158,7 @@ fn puzzle_output( puzzle: &mut [u8; GRID_SIZE] ) {
 fn puzzle_invalid_values_as_bits( puzzle: &mut [u8; GRID_SIZE], pos: usize ) -> u32 {
     let y = pos / GRID_SQRT;
     let x = pos % GRID_SQRT;
-    let topleft = ( y / GRID_BLCK ) * GRID_BLCK * 9 + ( x / GRID_BLCK ) * GRID_BLCK; 
+    let topleft = ( y / GRID_BLCK ) * GRID_BLCK * GRID_SQRT + ( x / GRID_BLCK ) * GRID_BLCK; 
     let mut bits: u32 = 0;
     for n in 0..GRID_SQRT {
         let b = puzzle[ n * GRID_SQRT + x ];
@@ -225,7 +225,7 @@ fn puzzle_generate( puzzle: &mut [u8; GRID_SIZE] ) {
     for i in 0..GRID_SIZE { puzzle[i] = 0; }
     puzzle_solve_all( puzzle, 1, true );
 
-    let mut new_puzzle: [u8;81] = [0; GRID_SIZE];
+    let mut new_puzzle: [u8;GRID_SIZE] = [0; GRID_SIZE];
     for i in 0..GRID_SIZE { new_puzzle[i] = puzzle[i]; }
 
     // remove numbers from solved board
