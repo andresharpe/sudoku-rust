@@ -243,9 +243,7 @@ fn puzzle_generate( puzzle: &mut [u8; GRID_SIZE] ) {
             new_puzzle[ removelist[i] ] = save_item;
         }
     }
-
-    // done
-    for i in 0..GRID_SIZE { puzzle[i] = new_puzzle[i]; }
+   for i in 0..GRID_SIZE { puzzle[i] = new_puzzle[i]; }
 }
 
 fn shuffle<T>(v: &mut [T]) {
