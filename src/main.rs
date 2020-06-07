@@ -11,7 +11,7 @@ use std::str;
 
 const GRID_BLCK: usize = 3;
 const GRID_SQRT: usize = GRID_BLCK * GRID_BLCK;
-const GRID_SIZE: usize = GRID_SQRT*GRID_SQRT;
+const GRID_SIZE: usize = GRID_SQRT * GRID_SQRT;
 
 fn main() {
     let now = Instant::now();
