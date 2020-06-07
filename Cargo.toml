@@ -1,0 +1,14 @@
+[package]
+name = "sudoku-rsq"
+version = "0.1.0"
+authors = ["Andre Sharpe <andre.sharpe@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+opt-level = 3
+
+[dependencies]
+clap = "2.33.1"
+rand = "0.7.3"
