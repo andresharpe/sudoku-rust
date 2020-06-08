@@ -9,7 +9,7 @@
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/target/debug/sudoku-rsq.exe",
-            "args": [],
+            "args": ["--generate","--number","10"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],

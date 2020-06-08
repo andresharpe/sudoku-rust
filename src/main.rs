@@ -58,9 +58,9 @@ fn main() {
 
     if matches.is_present("generate") {
         let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
-        count = puzzle_generate_file( &filename, number, output );
+        count = Sudoku::generate_to_file( &filename, number, output );
     } else {
-         count = match puzzle_solve_file( &filename, output ) {
+         count = match Sudoku::solve_from_file( &filename, output ) {
             Ok(number)  => number,
             Err(_e) => -1,
          }
@@ -72,213 +72,232 @@ fn main() {
 
 }
 
-fn puzzle_solve_file( filename: &str, output: bool ) -> io::Result<i32> {
-    let puzzle_file = File::open( filename )?;
-    let puzzle_file = BufReader::new( puzzle_file );
-    let mut puzzle: [usize; GRID_SIZE] = [0; GRID_SIZE];
-    let mut result = 0;
-    if output {
-        fs::remove_file(format!("{}{}", filename, ".solutions")).ok();
+struct Sudoku {
+    puzzle: [usize; GRID_SIZE],
+    solutions: usize,
+    limit: usize,
+}
+
+impl Sudoku {
+
+    fn new() -> Sudoku {
+        Sudoku {
+            puzzle: [0; GRID_SIZE],
+            solutions: 0,
+            limit: 1,
+        }
     }
-    for line in puzzle_file.lines() {
-        let str_puzzle = line.unwrap();
-        if str_puzzle.len() == GRID_SIZE {
-            let s_original = if output { str_puzzle.clone() } else { String::new() };
-            puzzle_from_string( &mut puzzle, str_puzzle );
-            if (result) % 200 == 0 { 
-                println!( "Solving puzzle #{}", result+1 );
-                puzzle_output( &mut puzzle );
-            };
-            let solutions = puzzle_solve_all( &mut puzzle, 1, false );
-            if solutions == 1 {
-                if (result) % 200 == 0 {
-                    puzzle_output( &mut puzzle );
-                }
-            } else {
-                println!();
-                println!( "There is no solution for this puzzle.");
+
+    fn initialize( &mut self, str_puzzle: String ) {
+        self.solutions = 0;
+        let bytes = str_puzzle.as_bytes();
+        if bytes.len() == GRID_SIZE {
+            for (i,&b) in bytes.iter().enumerate() {
+                if (b > b'0') && (b <= b'9') { self.puzzle[ i ] = ( b - 48 ) as usize } else { self.puzzle[ i ] = 0 as usize };
             }
+        }
+    }
+
+    fn to_string( &self ) -> String {
+        let mut x_puzzle: [u8;GRID_SIZE] = [0; GRID_SIZE];
+        for i in 0..GRID_SIZE{
+            x_puzzle[i] = (self.puzzle[i] + 48) as u8;
+        }
+        let s_puzzle = str::from_utf8(&x_puzzle).unwrap();
+        String::from(s_puzzle)
+    }
+    
+    fn solve_from_file( filename: &str, output: bool ) -> io::Result<i32> {
+        let puzzle_file = File::open( filename )?;
+        let puzzle_file = BufReader::new( puzzle_file );
+        let mut sudoku = Sudoku::new();
+        let mut result = 0;
+
+        if output {
+            fs::remove_file(format!("{}{}", filename, ".solutions")).ok();
+        }
+
+        for line in puzzle_file.lines() {
+            let str_puzzle = line.unwrap();
+            if str_puzzle.len() == GRID_SIZE {
+                let s_original = if output { str_puzzle.clone() } else { String::new() };
+                sudoku.initialize( str_puzzle );
+                if (result) % 200 == 0 { 
+                    println!( "Solving puzzle #{}", result+1 );
+                    sudoku.display();
+                };
+                sudoku.solve( 1, true );
+                if sudoku.solutions == 1 {
+                    if (result) % 200 == 0 {
+                        sudoku.display();
+                    }
+                } else {
+                    println!();
+                    println!( "There is no solution for this puzzle.");
+                }
+                if output {
+                    let mut solution_file = OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .append(true)
+                        .open(format!("{}{}", filename, ".solutions"))
+                        .unwrap();
+                    if result > 0 { solution_file.write_all("\n".as_bytes()).expect("Write failed."); }
+                    if sudoku.solutions == 1 {
+                        let s_puzzle = sudoku.to_string();
+                        solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
+                    } else {
+                        solution_file.write_all(s_original.as_bytes()).expect("Write failed.");
+                    }
+                }
+                result += 1;
+            }
+        }
+        Ok(result)
+    }
+
+    fn generate_to_file( filename: &str, number: usize, output: bool ) -> i32 {
+        let mut result = 0;
+        let mut puzzle_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(filename)
+            .unwrap();
+        let mut sudoku = Sudoku::new();
+        for i in 0..number {
+            sudoku.generate();
+            if (result) % 100 == 0 { 
+                println!("Generating puzzle {} of {}:", i+1, number );
+                sudoku.display();
+            }
+            let s_puzzle = sudoku.to_string();
+            puzzle_file.write_all("\n".as_bytes()).expect("Write failed.");
+            puzzle_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
             if output {
+                sudoku.solve( 1, true );
                 let mut solution_file = OpenOptions::new()
                     .create(true)
                     .write(true)
                     .append(true)
                     .open(format!("{}{}", filename, ".solutions"))
                     .unwrap();
-                if result > 0 { solution_file.write_all("\n".as_bytes()).expect("Write failed."); }
-                if solutions == 1 {
-                    let s_puzzle = puzzle_to_string( &mut puzzle );
-                    solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
-                } else {
-                    solution_file.write_all(s_original.as_bytes()).expect("Write failed.");
-                }
+                let s_puzzle = sudoku.to_string();
+                solution_file.write_all("\n".as_bytes()).expect("Write failed."); 
+                solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
             }
             result += 1;
         }
+        return result;
     }
-    Ok(result)
-}
-
-fn puzzle_generate_file( filename: &str, number: usize, output: bool ) -> i32 {
-    let mut puzzle: [usize; GRID_SIZE] = [0; GRID_SIZE];
-    let mut result = 0;
-    let mut puzzle_file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(filename)
-        .unwrap();
-    for i in 0..number {
-        puzzle_generate( &mut puzzle );
-        if (result) % 100 == 0 { 
-            println!("Generating puzzle {} of {}:", i+1, number );
-            puzzle_output( &mut puzzle );
+    
+    fn display( &self ) {
+        println!( " +---------+---------+---------+ " ); 
+        for i in 0..GRID_SIZE {
+            if i % GRID_SQRT == 0  { print!(" |"); }        
+            if self.puzzle[i] == 0 { print!(" . ") } else { print!(" {} ", self.puzzle[i] ) };
+            let i1 = i+1;
+            if i1 % GRID_BLCK == 0 { print!("|"); }      
+            if i1 != GRID_SIZE {                            
+                if i1 % GRID_SQRT == 0  { println!(); }  
+                if i1 % (GRID_SQRT*GRID_BLCK) == 0 { 
+                    println!(" |---------+---------+---------| "); 
+                } 
+            }   
         }
-        let s_puzzle = puzzle_to_string( &mut puzzle );
-        puzzle_file.write_all("\n".as_bytes()).expect("Write failed.");
-        puzzle_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
-        if output {
-            puzzle_solve_all( &mut puzzle, 1, false );
-            let mut solution_file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .append(true)
-                .open(format!("{}{}", filename, ".solutions"))
-                .unwrap();
-            let s_puzzle = puzzle_to_string( &mut puzzle );
-            solution_file.write_all("\n".as_bytes()).expect("Write failed."); 
-            solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
-        }
-        result += 1;
+        println!();
+        println!( " +---------+---------+---------+ " );
+        println!();
     }
-    return result;
-}
 
-fn puzzle_from_string( puzzle: &mut [usize; GRID_SIZE], str_puzzle: String ) {
-    let bytes = str_puzzle.as_bytes();
-    let mut i : usize = 0;
-    if bytes.len() == GRID_SIZE {
-        for b in bytes.iter() {
-            if (*b > b'0') && (*b <= b'9') { puzzle[ i ] = ( *b - 48 ) as usize } else { puzzle[ i ] = 0 as usize };
-            i += 1; 
-        }
+    fn solve( &mut self, limit: usize, fast:bool ) {
+        self.solutions = 0;
+        self.limit = limit;
+        if fast { self.solve_fast() } else { self.solve_random() }
     }
-}
 
-fn puzzle_to_string( puzzle: &mut [usize; GRID_SIZE] ) -> String {
-    let mut x_puzzle: [u8;GRID_SIZE] = [0; GRID_SIZE];
-    for i in 0..GRID_SIZE{
-        x_puzzle[i] = (puzzle[i] + 48) as u8;
-    }
-    let s_puzzle = str::from_utf8(&x_puzzle).unwrap();
-    return String::from(s_puzzle);
-}
-
-fn puzzle_output( puzzle: &mut [usize; GRID_SIZE] ) {
-    println!( " +---------+---------+---------+ " ); 
-    for i in 0..GRID_SIZE {
-        if i % GRID_SQRT == 0  { print!(" |"); }        
-        if puzzle[i] == 0 { print!(" . ") } else { print!(" {} ", puzzle[i] ) };
-        let i1 = i+1;
-        if i1 % GRID_BLCK == 0 { print!("|"); }      
-        if i1 != GRID_SIZE {                            
-            if i1 % GRID_SQRT == 0  { println!(); }  
-            if i1 % (GRID_SQRT*GRID_BLCK) == 0 { 
-                println!(" |---------+---------+---------| "); 
-            } 
-        }   
-    }
-    println!();
-    println!( " +---------+---------+---------+ " );
-    println!();
-}
-
-fn puzzle_invalid_values_as_bits( puzzle: &mut [usize; GRID_SIZE], pos: usize ) -> usize {
-    let y = pos / GRID_SQRT;
-    let x = pos % GRID_SQRT;
-    let topleft = ( y / GRID_BLCK ) * GRID_BLCK * GRID_SQRT + ( x / GRID_BLCK ) * GRID_BLCK; 
-    let mut bits: usize = 0;
-    for n in 0..GRID_SQRT {
-        bits = bits 
-            | NUM_BITMAP[ puzzle[ n * GRID_SQRT + x ] ] 
-            | NUM_BITMAP[ puzzle[ y * GRID_SQRT + n ] ] 
-            | NUM_BITMAP[ puzzle[ topleft + ( n % GRID_BLCK ) * GRID_SQRT + ( n / GRID_BLCK  ) ] ] ;
-    }
-    return bits;
-}
-
-fn puzzle_solve_all( puzzle: &mut [usize; GRID_SIZE], limit: usize, random: bool ) -> usize {
-    let mut solutions = 0;
-    if random {
-        puzzle_solve_random( puzzle, limit, &mut solutions ); // slower, but needed for generating new puzzles
-    } else {
-        puzzle_solve_fast( puzzle, limit, &mut solutions ); 
-    }
-    return solutions;
-}
-
-fn puzzle_solve_fast( puzzle: &mut [usize; GRID_SIZE], limit: usize, solutions: &mut usize ) { 
-    for i in 0..GRID_SIZE {
-        if puzzle[i] == 0 {
-            let b: usize = puzzle_invalid_values_as_bits( puzzle, i );
-            for value in 1..GRID_SQRT+1 {
-                if  ( b & NUM_BITMAP[ value ] ) == 0 {
-                    puzzle[i] = value;
-                    puzzle_solve_fast( puzzle, limit, solutions );  // recurse!
-                    if *solutions == limit { return; }
-                    puzzle[i] = 0;
+    fn solve_fast( &mut self ) { 
+        for i in 0..GRID_SIZE {
+            if self.puzzle[ i ] == 0 {
+                let b: usize = self.invalid_values_as_bits( i );
+                for value in 1..GRID_SQRT+1 {
+                    if  ( b & NUM_BITMAP[ value ] ) == 0 {
+                        self.puzzle[ i ] = value;
+                        self.solve_fast();  // recurse!
+                        if self.solutions == self.limit { return; }
+                        self.puzzle[ i ] = 0;
+                    }
                 }
+                return;
             }
-            return;
         }
+        self.solutions += 1;  // only reaches this point recursively when all cells are solved
     }
-    *solutions += 1;  // only reaches this point recursively when all cells are solved
-}
-
-fn puzzle_solve_random( puzzle: &mut [usize; GRID_SIZE], limit: usize, solutions: &mut usize ) { 
-    let mut numbers = [1,2,3,4,5,6,7,8,9];
-    for i in 0..GRID_SIZE {
-        if puzzle[i] == 0 {
-            let b: usize = puzzle_invalid_values_as_bits( puzzle, i );
-            shuffle(&mut numbers);
-            for value in 0..GRID_SQRT {
-                if  ( b >> numbers[value]-1 ) & 1 == 0 {
-                    puzzle[i] = numbers[value];
-                    puzzle_solve_random( puzzle, limit, solutions );  // recurse!
-                    if *solutions >= limit { return; }
-                    puzzle[i] = 0;
+    
+    fn solve_random( &mut self ) { 
+        let mut numbers = [1,2,3,4,5,6,7,8,9];
+        for i in 0..GRID_SIZE {
+            if self.puzzle[i] == 0 {
+                let b: usize = self.invalid_values_as_bits( i );
+                shuffle(&mut numbers);
+                for value in 0..GRID_SQRT {
+                    if  ( b & NUM_BITMAP[ numbers[ value ] ] ) == 0 {
+                        self.puzzle[i] = numbers[ value ];
+                        self.solve_random();  // recurse!
+                        if self.solutions == self.limit { return; }
+                        self.puzzle[ i ] = 0;
+                    }
                 }
+                return;
             }
-            return;
         }
+        self.solutions += 1;  // only reaches this point recursively when all cells are solved
     }
-    *solutions += 1;  // only reaches this point recursively when all cells are solved
-}
-
-fn puzzle_generate( puzzle: &mut [usize; GRID_SIZE] ) {
-
-    // generate a random solution
-    for i in 0..GRID_SIZE { puzzle[i] = 0; }
-    puzzle_solve_all( puzzle, 1, true );
-
-    let mut new_puzzle: [usize;GRID_SIZE] = [0; GRID_SIZE];
-    for i in 0..GRID_SIZE { new_puzzle[i] = puzzle[i]; }
-
-    // remove numbers from solved board
-    let mut removelist: [usize;GRID_SIZE] = [0; GRID_SIZE];
-    for i in 0..GRID_SIZE { removelist[i] = i; }
-    shuffle(&mut removelist);
-
-    // systematically remove a number and confirm there is only one solution all the way or reverse it
-    for i in 0..GRID_SIZE { 
-        let save_item = new_puzzle[ removelist[i] ];
-        new_puzzle[ removelist[i] ] = 0;
-        for i in 0..GRID_SIZE { puzzle[i] = new_puzzle[i]; }
-        let solutions = puzzle_solve_all( puzzle, 2, false );
-        if solutions != 1 {
-            new_puzzle[ removelist[i] ] = save_item;
+    
+    fn invalid_values_as_bits( &self, pos: usize ) -> usize {
+        let y = pos / GRID_SQRT;
+        let x = pos % GRID_SQRT;
+        let topleft = ( y / GRID_BLCK ) * GRID_BLCK * GRID_SQRT + ( x / GRID_BLCK ) * GRID_BLCK; 
+        let mut bits: usize = 0;
+        for n in 0..GRID_SQRT {
+            bits = bits 
+                | NUM_BITMAP[ self.puzzle[ n * GRID_SQRT + x ] ] 
+                | NUM_BITMAP[ self.puzzle[ y * GRID_SQRT + n ] ] 
+                | NUM_BITMAP[ self.puzzle[ topleft + ( n % GRID_BLCK ) * GRID_SQRT + ( n / GRID_BLCK  ) ] ] ;
         }
+        return bits;
     }
-   for i in 0..GRID_SIZE { puzzle[i] = new_puzzle[i]; }
+
+    fn generate( &mut self ) {
+
+        // generate a random solution
+        self.clear();
+        self.solve( 1, false );
+
+        let mut new = Sudoku::new();
+        for v in 0..GRID_SIZE { new.puzzle[v] = self.puzzle[v]; }
+    
+        // remove numbers from solved board
+        let mut removelist: [usize;GRID_SIZE] = [0; GRID_SIZE];
+        for i in 0..GRID_SIZE { removelist[i] = i; }
+        shuffle(&mut removelist);
+    
+        // systematically remove a number and confirm there is only one solution all the way or reverse it
+        for i in 0..GRID_SIZE { 
+            let save_item = new.puzzle[ removelist[i] ];
+            new.puzzle[ removelist[i] ] = 0;
+            for v in 0..GRID_SIZE { self.puzzle[v] = new.puzzle[v]; }
+            self.solve( 2, true );
+            if self.solutions != 1 {
+                new.puzzle[ removelist[i] ] = save_item;
+            }
+        }
+        for v in 0..GRID_SIZE { self.puzzle[v] = new.puzzle[v]; }
+    }
+
+    fn clear( &mut self ) {
+        for i in 0..GRID_SIZE { self.puzzle[i] = 0; }
+    }
 }
 
 fn shuffle<T>(v: &mut [T]) {
