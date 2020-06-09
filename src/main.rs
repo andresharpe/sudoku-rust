@@ -63,13 +63,13 @@ fn main() {
 
     let matches = app.get_matches();
     let filename = matches.value_of("file").unwrap_or(".\\puzzle.txt");
-    let output = matches.is_present("output");
+    let output_solutions = matches.is_present("output");
     let count;
     if matches.is_present("generate") {
         let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
-        count = Sudoku::generate_puzzles_to_file( &filename, number, output );
+        count = Sudoku::generate_puzzles_to_file( &filename, number, output_solutions );
     } else {
-         count = match Sudoku::solve_puzzles_from_file( &filename, output ) {
+         count = match Sudoku::solve_puzzles_from_file( &filename, output_solutions ) {
             Ok(number)  => number,
             Err(_e) => -1,
          }
@@ -128,13 +128,13 @@ impl Sudoku {
         String::from(s_puzzle)
     }
     
-    fn solve_puzzles_from_file( filename: &str, output: bool ) -> io::Result<i32> {
+    fn solve_puzzles_from_file( filename: &str, output_solutions: bool ) -> io::Result<i32> {
         let puzzle_file = File::open( filename )?;
         let puzzle_file = BufReader::new( puzzle_file );
         let mut sudoku = Sudoku::new();
         let mut result = 0;
 
-        if output { fs::remove_file(format!("{}{}", filename, ".solutions")).ok(); }
+        if output_solutions { fs::remove_file(format!("{}{}", filename, ".solutions")).ok(); }
         for line in puzzle_file.lines() {
             let str_puzzle = line.unwrap();
             if str_puzzle.len() == GRID_SIZE {
@@ -151,7 +151,7 @@ impl Sudoku {
                 } else {
                     println!( "There is no solution for this puzzle.");
                 }
-                if output {
+                if output_solutions {
                     sudoku.output_solution_to_file( &filename, result > 0 );
                 }
                 result += 1;
@@ -160,7 +160,7 @@ impl Sudoku {
         Ok(result)
     }
 
-    fn generate_puzzles_to_file( filename: &str, number: usize, output: bool ) -> i32 {
+    fn generate_puzzles_to_file( filename: &str, number: usize, output_solutions: bool ) -> i32 {
         let mut result = 0;
         let puzzle_file_exist = std::path::Path::new( filename ).exists();
         let mut puzzle_file = OpenOptions::new()
@@ -178,7 +178,7 @@ impl Sudoku {
             }
             if puzzle_file_exist || result > 0 { puzzle_file.write_all("\n".as_bytes()).expect("Write failed."); }
             puzzle_file.write_all(sudoku.to_string().as_bytes()).expect("Write failed.");
-            if output {
+            if output_solutions {
                 sudoku.solve_fast( 1 );
                 sudoku.output_solution_to_file( &filename, true );
             }
