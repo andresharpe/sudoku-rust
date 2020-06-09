@@ -9,21 +9,29 @@ use std::fs::OpenOptions;
 use std::str;
 use console::style;
 
-const GRID_BLCK: usize = 3;
+const GRID_BLCK: usize = 4;
 const GRID_SQRT: usize = GRID_BLCK * GRID_BLCK;
 const GRID_SIZE: usize = GRID_SQRT * GRID_SQRT;
-const NUM_TO_BITMAP: [usize;10] = [
-    0b_000000000000, 
-    0b_000000000001, 
-    0b_000000000010, 
-    0b_000000000100, 
-    0b_000000001000, 
-    0b_000000010000, 
-    0b_000000100000, 
-    0b_000001000000, 
-    0b_000010000000, 
-    0b_000100000000,
+const NUM_TO_BITMAP: [usize;17] = [
+    0b_0000000000000000, 
+    0b_0000000000000001, 
+    0b_0000000000000010, 
+    0b_0000000000000100, 
+    0b_0000000000001000, 
+    0b_0000000000010000, 
+    0b_0000000000100000, 
+    0b_0000000001000000, 
+    0b_0000000010000000, 
+    0b_0000000100000000,
+    0b_0000001000000000,
+    0b_0000010000000000,
+    0b_0000100000000000,
+    0b_0001000000000000,
+    0b_0010000000000000,
+    0b_0100000000000000,
+    0b_1000000000000000,
 ];
+const NUM_TO_TEXT: [char;17] = ['.','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F','0'];
 
 fn main() {
     // program start //
@@ -102,7 +110,15 @@ impl Sudoku {
         let bytes = str_puzzle.as_bytes();
         if bytes.len() == GRID_SIZE {
             for (i,&b) in bytes.iter().enumerate() {
-                if (b > b'0') && (b <= b'9') { self.puzzle[ i ] = (b - 48) as usize } else { self.puzzle[ i ] = 0 };
+                if (b >= b'1') && (b <= b'9') {
+                    self.puzzle[ i ] = (b - 48) as usize 
+                } else if (b >= b'A') && (b <= b'F') {
+                    self.puzzle[ i ] = (b - 55) as usize 
+                } else if b == b'0' {
+                    self.puzzle[ i ] = 16 
+                } else { 
+                    self.puzzle[ i ] = 0 
+                };
             }
         }
     }
@@ -120,12 +136,11 @@ impl Sudoku {
     }
 
     fn to_string( &self ) -> String {
-        let mut x_puzzle: [u8;GRID_SIZE] = [0; GRID_SIZE];
+        let mut s_puzzle = String::new();
         for i in 0..GRID_SIZE{
-            x_puzzle[i] = (self.puzzle[i] + 48) as u8;
+            s_puzzle.push( NUM_TO_TEXT[ self.puzzle[i] ] );
         }
-        let s_puzzle = str::from_utf8(&x_puzzle).unwrap();
-        String::from(s_puzzle)
+        s_puzzle
     }
     
     fn solve_puzzles_from_file( filename: &str, output_solutions: bool ) -> io::Result<i32> {
@@ -205,21 +220,51 @@ impl Sudoku {
     }
     
     fn display( &self ) {
-        println!( "{}", style(" ┌─────────┬─────────┬─────────┐ ").green() ) ; 
+        let segment = std::iter::repeat("─").take( GRID_BLCK*3 ).collect::<String>(); 
+
+        let mut line = String::new();
+        line += " ┌";
+        line += &segment;
+        for _i in 0..GRID_BLCK-1 {
+            line += "┬";
+            line += &segment;
+        }
+        line += "┐ ";
+        println!( "{}", style( &line ).green() ) ; 
+
+        let mut line = String::new();
+        line += " ├";
+        line += &segment;
+        for _i in 0..GRID_BLCK-1 {
+            line += "┼";
+            line += &segment;
+        }
+        line += "┤ ";
+
         for i in 0..GRID_SIZE {
             if i % GRID_SQRT == 0  { print!("{}", style(" │").green()); }        
-            if self.puzzle[i] == 0 { print!("{}", style(" . ").green()) } else { print!(" {} ", style(self.puzzle[i]).yellow().bright()) };
+            print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow().bright());
             let i1 = i+1;
-            if i1 % GRID_BLCK == 0 { print!("{}", style("│").green()); }      
+            if i1 % GRID_BLCK == 0 { print!("{}", style("│").green() ); }      
             if i1 != GRID_SIZE {                            
                 if i1 % GRID_SQRT == 0  { println!(); }  
                 if i1 % (GRID_SQRT*GRID_BLCK) == 0 { 
-                    println!("{}", style(" ├─────────┼─────────┼─────────┤ ").green() ); 
+                   println!("{}", style( &line ).green() ); 
                 } 
             }   
         }
+
+        let mut line = String::new();
+        line += " └";
+        line += &segment;
+        for _i in 0..GRID_BLCK-1 {
+            line += "┴";
+            line += &segment;
+        }
+        line += "┘ ";
+
         println!();
-        println!( "{}", style(" └─────────┴─────────┴─────────┘ ").green() );
+        println!( "{}", style( &line ).green() );
         println!();
     }
 
@@ -254,7 +299,8 @@ impl Sudoku {
     }
     
     fn solve_recursive_random( &mut self ) { 
-        let mut numbers = [1,2,3,4,5,6,7,8,9];
+        let mut numbers: [usize; GRID_SQRT] = [0; GRID_SQRT];
+        for i in 0..GRID_SQRT { numbers[i] = i+1 }
         for i in 0..GRID_SIZE {
             if self.puzzle[i] == 0 {
                 let b: usize = self.invalid_values_as_bits( i );
