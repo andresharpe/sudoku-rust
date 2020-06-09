@@ -58,9 +58,9 @@ fn main() {
 
     if matches.is_present("generate") {
         let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
-        count = Sudoku::generate_to_file( &filename, number, output );
+        count = Sudoku::generate_puzzles_to_file( &filename, number, output );
     } else {
-         count = match Sudoku::solve_from_file( &filename, output ) {
+         count = match Sudoku::solve_puzzles_from_file( &filename, output ) {
             Ok(number)  => number,
             Err(_e) => -1,
          }
@@ -98,6 +98,17 @@ impl Sudoku {
         }
     }
 
+    fn initialize_with_array( &mut self, a_puzzle: [usize;GRID_SIZE] ) {
+        self.solutions = 0;
+        for (i,&v) in a_puzzle.iter().enumerate() {
+            self.puzzle[ i ] = v;
+        }
+    }
+
+    fn clear( &mut self ) {
+        for i in 0..GRID_SIZE { self.puzzle[i] = 0; }
+    }
+
     fn to_string( &self ) -> String {
         let mut x_puzzle: [u8;GRID_SIZE] = [0; GRID_SIZE];
         for i in 0..GRID_SIZE{
@@ -107,7 +118,7 @@ impl Sudoku {
         String::from(s_puzzle)
     }
     
-    fn solve_from_file( filename: &str, output: bool ) -> io::Result<i32> {
+    fn solve_puzzles_from_file( filename: &str, output: bool ) -> io::Result<i32> {
         let puzzle_file = File::open( filename )?;
         let puzzle_file = BufReader::new( puzzle_file );
         let mut sudoku = Sudoku::new();
@@ -120,13 +131,12 @@ impl Sudoku {
         for line in puzzle_file.lines() {
             let str_puzzle = line.unwrap();
             if str_puzzle.len() == GRID_SIZE {
-                let s_original = if output { str_puzzle.clone() } else { String::new() };
                 sudoku.initialize( str_puzzle );
                 if (result) % 200 == 0 { 
                     println!( "Solving puzzle #{}", result+1 );
                     sudoku.display();
                 };
-                sudoku.solve( 1, true );
+                sudoku.solve_fast( 1 );
                 if sudoku.solutions == 1 {
                     if (result) % 200 == 0 {
                         sudoku.display();
@@ -136,19 +146,7 @@ impl Sudoku {
                     println!( "There is no solution for this puzzle.");
                 }
                 if output {
-                    let mut solution_file = OpenOptions::new()
-                        .create(true)
-                        .write(true)
-                        .append(true)
-                        .open(format!("{}{}", filename, ".solutions"))
-                        .unwrap();
-                    if result > 0 { solution_file.write_all("\n".as_bytes()).expect("Write failed."); }
-                    if sudoku.solutions == 1 {
-                        let s_puzzle = sudoku.to_string();
-                        solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
-                    } else {
-                        solution_file.write_all(s_original.as_bytes()).expect("Write failed.");
-                    }
+                    sudoku.output_solution_to_file( &filename, result > 0 );
                 }
                 result += 1;
             }
@@ -156,8 +154,9 @@ impl Sudoku {
         Ok(result)
     }
 
-    fn generate_to_file( filename: &str, number: usize, output: bool ) -> i32 {
+    fn generate_puzzles_to_file( filename: &str, number: usize, output: bool ) -> i32 {
         let mut result = 0;
+        let puzzle_file_exist = std::path::Path::new( filename ).exists();
         let mut puzzle_file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -172,23 +171,32 @@ impl Sudoku {
                 sudoku.display();
             }
             let s_puzzle = sudoku.to_string();
-            puzzle_file.write_all("\n".as_bytes()).expect("Write failed.");
+            if puzzle_file_exist || result > 0 { puzzle_file.write_all("\n".as_bytes()).expect("Write failed."); }
             puzzle_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
             if output {
-                sudoku.solve( 1, true );
-                let mut solution_file = OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(format!("{}{}", filename, ".solutions"))
-                    .unwrap();
-                let s_puzzle = sudoku.to_string();
-                solution_file.write_all("\n".as_bytes()).expect("Write failed."); 
-                solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
+                sudoku.solve_fast( 1 );
+                sudoku.output_solution_to_file( &filename, true );
             }
             result += 1;
         }
         return result;
+    }
+
+    fn output_solution_to_file( &self, filename: &str, newline: bool ) {
+        let mut solution_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(format!("{}{}", filename, ".solutions"))
+            .unwrap();
+        let s_puzzle;
+        if self.solutions == 0 {
+            s_puzzle = std::iter::repeat(".").take( GRID_SIZE ).collect::<String>();
+        } else {
+            s_puzzle = self.to_string();
+        }
+        if newline { solution_file.write_all("\n".as_bytes()).expect("Write failed.") }; 
+        solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
     }
     
     fn display( &self ) {
@@ -210,20 +218,26 @@ impl Sudoku {
         println!();
     }
 
-    fn solve( &mut self, limit: usize, fast:bool ) {
+    fn solve_fast( &mut self, limit: usize) {
         self.solutions = 0;
         self.limit = limit;
-        if fast { self.solve_fast() } else { self.solve_random() }
+        self.solve_recursive_fast();
     }
 
-    fn solve_fast( &mut self ) { 
+    fn solve_random( &mut self, limit: usize) {
+        self.solutions = 0;
+        self.limit = limit;
+        self.solve_recursive_random();
+    }
+
+    fn solve_recursive_fast( &mut self ) { 
         for i in 0..GRID_SIZE {
             if self.puzzle[ i ] == 0 {
                 let b: usize = self.invalid_values_as_bits( i );
                 for value in 1..GRID_SQRT+1 {
                     if  ( b & NUM_BITMAP[ value ] ) == 0 {
                         self.puzzle[ i ] = value;
-                        self.solve_fast();  // recurse!
+                        self.solve_recursive_fast();  // recurse!
                         if self.solutions == self.limit { return; }
                         self.puzzle[ i ] = 0;
                     }
@@ -234,7 +248,7 @@ impl Sudoku {
         self.solutions += 1;  // only reaches this point recursively when all cells are solved
     }
     
-    fn solve_random( &mut self ) { 
+    fn solve_recursive_random( &mut self ) { 
         let mut numbers = [1,2,3,4,5,6,7,8,9];
         for i in 0..GRID_SIZE {
             if self.puzzle[i] == 0 {
@@ -243,7 +257,7 @@ impl Sudoku {
                 for value in 0..GRID_SQRT {
                     if  ( b & NUM_BITMAP[ numbers[ value ] ] ) == 0 {
                         self.puzzle[i] = numbers[ value ];
-                        self.solve_random();  // recurse!
+                        self.solve_recursive_random();  // recurse!
                         if self.solutions == self.limit { return; }
                         self.puzzle[ i ] = 0;
                     }
@@ -272,10 +286,10 @@ impl Sudoku {
 
         // generate a random solution
         self.clear();
-        self.solve( 1, false );
+        self.solve_random( 1 );
 
         let mut new = Sudoku::new();
-        for v in 0..GRID_SIZE { new.puzzle[v] = self.puzzle[v]; }
+        new.initialize_with_array( self.puzzle );
     
         // remove numbers from solved board
         let mut removelist: [usize;GRID_SIZE] = [0; GRID_SIZE];
@@ -286,18 +300,15 @@ impl Sudoku {
         for i in 0..GRID_SIZE { 
             let save_item = new.puzzle[ removelist[i] ];
             new.puzzle[ removelist[i] ] = 0;
-            for v in 0..GRID_SIZE { self.puzzle[v] = new.puzzle[v]; }
-            self.solve( 2, true );
+            self.initialize_with_array( new.puzzle );
+            self.solve_fast( 2 );
             if self.solutions != 1 {
                 new.puzzle[ removelist[i] ] = save_item;
             }
         }
-        for v in 0..GRID_SIZE { self.puzzle[v] = new.puzzle[v]; }
+        self.initialize_with_array( new.puzzle );
     }
 
-    fn clear( &mut self ) {
-        for i in 0..GRID_SIZE { self.puzzle[i] = 0; }
-    }
 }
 
 fn shuffle<T>(v: &mut [T]) {
