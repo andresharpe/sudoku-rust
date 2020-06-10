@@ -35,7 +35,7 @@ const NUM_TO_TEXT: [char;17] = ['.','1','2','3','4','5','6','7','8','9','A','B',
 
 fn main() {
     // program start //
-    let app = App::new("Sudoko CLI - Quick!")
+    let app = App::new("SUDOKU CLI Solver & Generator")
         .version("0.1.0")
         .author("Andre Sharpe <andre.sharpe@gmail.com>")
         .about("Solves and generates Sudoku puzzles, but fast!")
@@ -97,7 +97,7 @@ _\ \ |_| | (_| | (_) |   <| |_| |
 
     println!("{}",style(banner).green().bright());
     println!("");
-    println!("{}",style("SUDOKU Solver & Generator").green().bright());
+    println!("{}",style("SUDOKU CLI Solver & Generator").green().bright());
     println!("{}",style(" made with Rust in 2020").white());
     println!("");
     println!(" {} {}", style("build version.....").white(), style( format!( "{}x{}", GRID_BLCK, GRID_BLCK ) ).green() );
