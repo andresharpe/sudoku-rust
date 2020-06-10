@@ -6,10 +6,10 @@ use std::io::prelude::*;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::str;
 use console::style;
+use console::Term;
 
-const GRID_BLCK: usize = 4;
+const GRID_BLCK: usize = 3;
 const GRID_SQRT: usize = GRID_BLCK * GRID_BLCK;
 const GRID_SIZE: usize = GRID_SQRT * GRID_SQRT;
 const NUM_TO_BITMAP: [usize;17] = [
@@ -35,7 +35,6 @@ const NUM_TO_TEXT: [char;17] = ['.','1','2','3','4','5','6','7','8','9','A','B',
 
 fn main() {
     // program start //
-    let now = Instant::now();
     let app = App::new("Sudoko CLI - Quick!")
         .version("0.1.0")
         .author("Andre Sharpe <andre.sharpe@gmail.com>")
@@ -46,12 +45,22 @@ fn main() {
             .takes_value(false)
             .conflicts_with("generate")
             .help("Solves puzzles in a text file"))
-        .arg(Arg::with_name("generate")
+            .arg(Arg::with_name("generate")
             .short("g")
             .long("generate")
             .takes_value(false)
             .conflicts_with("solve")
             .help("Generates puzzles and appends them to a text file"))
+        .arg(Arg::with_name("debug")
+            .short("d")
+            .long("debug")
+            .takes_value(false)
+            .help("Interactively debug the solve steps for puzzles."))
+        .arg(Arg::with_name("verbose")
+            .short("v")
+            .long("verbose")
+            .takes_value(false)
+            .help("Show solving steps in debug mode."))
         .arg(Arg::with_name("file")
             .short("f")
             .long("file")
@@ -67,41 +76,109 @@ fn main() {
             .short("o")
             .long("output")
             .takes_value(false)
-            .help("A file containing resulting solutions, one per line. Defaults to .\\puzzles.txt.solutions"));
+            .help("A file containing solutions, one per line. Defaults to .\\puzzles.txt.solutions"));
 
     let matches = app.get_matches();
-    let filename = matches.value_of("file").unwrap_or(".\\puzzle.txt");
+    let filename = String::from( matches.value_of("file").unwrap_or(".\\puzzle.txt") );
     let output_solutions = matches.is_present("output");
-    let count;
-    if matches.is_present("generate") {
-        let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
-        count = Sudoku::generate_puzzles_to_file( &filename, number, output_solutions );
-    } else {
-         count = match Sudoku::solve_puzzles_from_file( &filename, output_solutions ) {
-            Ok(number)  => number,
-            Err(_e) => -1,
-         }
-    }
+    let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
+    let debug = matches.is_present("debug");
+    let generate = matches.is_present("generate");
+    let verbose = matches.is_present("verbose");
+    let mut solutions_filename = filename.clone();
+    solutions_filename.push_str(".solutions");
+    let app_options = AppOptions{ filename, solutions_filename, output_solutions, number, debug, generate, verbose };
+    let banner =
+r" __           _       _          
+/ _\_   _  __| | ___ | | ___   _ 
+\ \| | | |/ _` |/ _ \| |/ / | | |
+_\ \ |_| | (_| | (_) |   <| |_| |
+\__/\__,_|\__,_|\___/|_|\_\\__,_|";
 
+    println!("{}",style(banner).green().bright());
+    println!("");
+    println!("{}",style("SUDOKU Solver & Generator").green().bright());
+    println!("{}",style(" made with Rust in 2020").white());
+    println!("");
+    println!(" {} {}", style("mode..............").white(), style( if app_options.generate { "generate" } else { "solve" }).green() );
+    if app_options.generate { println!(" {} {}", style("number of puzzles.").white(), style(app_options.number ).green()) }
+    println!(" {} {}", style("debug.............").white(), style(if app_options.debug { "yes" } else { "no" }).green() );
+    if app_options.debug { println!(" {} {}", style("verbose output....").white(), style(if app_options.verbose { "yes" } else { "no" }).green()) }
+    println!(" {} {}", style("puzzle file.......").white(), style(app_options.filename.clone()).green() );
+    if app_options.output_solutions { println!(" {} {}", style("solutions file....").white(), style(app_options.solutions_filename.clone()).green() ) }
+    println!("");
+
+    let now = Instant::now();
+    let count = Sudoku::run( app_options );
     let millisecs = now.elapsed().as_millis() as f64;
     let speed = f64::from( count )/(millisecs/1000.0f64);
-    println!("Elapsed time: {:.3} seconds. Puzzles completed: {}. Peformance: {:.3} puzzles/second.", millisecs/1000.0f64, count, speed );
-    // program end //
+    let line = format!("Elapsed time: {:.3} seconds. Puzzles completed: {}. Peformance: {:.3} puzzles/second.", millisecs/1000.0f64, count, speed );
+    println!("{}",style(line).white());
+
 }
+
+#[derive(Clone, Debug)]
+struct AppOptions {
+    filename: String,
+    solutions_filename: String,
+    output_solutions: bool,
+    number: usize,
+    debug: bool,
+    generate: bool,
+    verbose: bool,
+}
+
 
 struct Sudoku {
     puzzle: [usize; GRID_SIZE],
     solutions: usize,
     limit: usize,
+    app_options: AppOptions,
+    cell_choices: [usize; GRID_SIZE],
 }
 
 impl Sudoku {
 
-    fn new() -> Sudoku {
+    fn run( app_options: AppOptions ) -> i32 {
+        let generate = app_options.generate;
+        let mut sudoku = Sudoku::new( app_options );
+        let count: i32;
+        
+        if generate {
+            count = sudoku.generate_puzzles_to_file();
+        } else {
+             count = match sudoku.solve_puzzles_from_file() {
+                Ok(number)  => number,
+                Err(_e) => -1,
+             }
+        }
+        count
+    }
+
+    fn new( app_options: AppOptions ) -> Sudoku {
         Sudoku {
             puzzle: [0; GRID_SIZE],
             solutions: 0,
             limit: 1,
+            app_options, 
+            cell_choices: [0; GRID_SIZE],
+        }
+    }
+
+    fn calculate_cell_choices( &mut self ) {
+        for i in 0..GRID_SIZE {
+            if self.puzzle[i] == 0 {
+                let b = self.invalid_values_as_bits(i);
+                let mut count = 0;
+                for value in 1..GRID_SQRT+1 {
+                    if  ( b & NUM_TO_BITMAP[ value ] ) == 0 {
+                        count+= 1;
+                    }
+                }
+                self.cell_choices[i] = count;
+            } else {
+                self.cell_choices[i] = 0;
+            }
         }
     }
 
@@ -120,6 +197,9 @@ impl Sudoku {
                     self.puzzle[ i ] = 0 
                 };
             }
+            if self.app_options.debug {
+                self.calculate_cell_choices();
+            }
         }
     }
 
@@ -127,6 +207,9 @@ impl Sudoku {
         self.solutions = 0;
         for (i,&v) in a_puzzle.iter().enumerate() {
             self.puzzle[ i ] = v;
+        }
+        if self.app_options.debug {
+            self.calculate_cell_choices();
         }
     }
 
@@ -143,31 +226,33 @@ impl Sudoku {
         s_puzzle
     }
     
-    fn solve_puzzles_from_file( filename: &str, output_solutions: bool ) -> io::Result<i32> {
-        let puzzle_file = File::open( filename )?;
+    fn solve_puzzles_from_file( &mut self ) -> io::Result<i32> {
+        let filename = self.app_options.filename.clone();
+        let puzzle_file = File::open( &filename )?;
         let puzzle_file = BufReader::new( puzzle_file );
-        let mut sudoku = Sudoku::new();
         let mut result = 0;
 
-        if output_solutions { fs::remove_file(format!("{}{}", filename, ".solutions")).ok(); }
+        if self.app_options.output_solutions { fs::remove_file(format!("{}{}", &filename, ".solutions")).ok(); }
         for line in puzzle_file.lines() {
             let str_puzzle = line.unwrap();
             if str_puzzle.len() == GRID_SIZE {
-                sudoku.initialize_with_string( str_puzzle );
-                if (result) % 200 == 0 { 
-                    println!( "Solving puzzle #{}", result+1 );
-                    sudoku.display();
-                };
-                sudoku.solve_fast( 1 );
-                if sudoku.solutions == 1 {
-                    if (result) % 200 == 0 {
-                        sudoku.display();
+                self.initialize_with_string( str_puzzle );
+                if self.app_options.debug {
+                    self.calculate_cell_choices();
+                    self.solutions = 1;
+                    self.display( format!("Attempting puzzle #{}...", result+1) );
+                    self.solutions = 0;
+                }
+                self.solve_fast( 1 );
+                if self.solutions == 1 {
+                    if self.app_options.debug {
+                        self.display( format!("...solved puzzle #{}", result+1) );
                     }
                 } else {
-                    println!( "There is no solution for this puzzle.");
+                    println!( "There is no solution for puzzle #{}.", result+1);
                 }
-                if output_solutions {
-                    sudoku.output_solution_to_file( &filename, result > 0 );
+                if self.app_options.output_solutions {
+                    self.output_solution_to_file( result > 0 );
                 }
                 result += 1;
             }
@@ -175,39 +260,38 @@ impl Sudoku {
         Ok(result)
     }
 
-    fn generate_puzzles_to_file( filename: &str, number: usize, output_solutions: bool ) -> i32 {
+    fn generate_puzzles_to_file( &mut self ) -> i32 {
+        let filename = self.app_options.filename.clone();
         let mut result = 0;
-        let puzzle_file_exist = std::path::Path::new( filename ).exists();
+        let puzzle_file_exist = std::path::Path::new( &filename ).exists();
         let mut puzzle_file = OpenOptions::new()
             .create(true)
             .write(true)
             .append(true)
-            .open(filename)
+            .open(&filename)
             .unwrap();
-        let mut sudoku = Sudoku::new();
-        for i in 0..number {
-            sudoku.generate();
-            if (result) % 100 == 0 { 
-                println!("Generating puzzle {} of {}:", i+1, number );
-                sudoku.display();
+        for i in 0..self.app_options.number {
+            self.generate();
+            if self.app_options.debug { 
+                self.display( format!("...generated puzzle {} of {}:", i+1, self.app_options.number ) );
             }
             if puzzle_file_exist || result > 0 { puzzle_file.write_all("\n".as_bytes()).expect("Write failed."); }
-            puzzle_file.write_all(sudoku.to_string().as_bytes()).expect("Write failed.");
-            if output_solutions {
-                sudoku.solve_fast( 1 );
-                sudoku.output_solution_to_file( &filename, true );
+            puzzle_file.write_all(self.to_string().as_bytes()).expect("Write failed.");
+            if self.app_options.output_solutions {
+                self.solve_fast( 1 );
+                self.output_solution_to_file( true );
             }
             result += 1;
         }
         return result;
     }
 
-    fn output_solution_to_file( &self, filename: &str, newline: bool ) {
+    fn output_solution_to_file( &self, newline: bool ) {
         let mut solution_file = OpenOptions::new()
             .create(true)
             .write(true)
             .append(true)
-            .open(format!("{}{}", filename, ".solutions"))
+            .open(self.app_options.solutions_filename.clone())
             .unwrap();
         let s_puzzle;
         if self.solutions == 0 {
@@ -219,9 +303,12 @@ impl Sudoku {
         solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
     }
     
-    fn display( &self ) {
-        let segment = std::iter::repeat("─").take( GRID_BLCK*3 ).collect::<String>(); 
+    fn display( &self, heading: String ) {
+        let term = Term::stdout();
+        term.hide_cursor().ok();
+        println!( "{}", style( heading ).white() ) ; 
 
+        let segment = std::iter::repeat("─").take( GRID_BLCK*3 ).collect::<String>(); 
         let mut line = String::new();
         line += " ┌";
         line += &segment;
@@ -243,7 +330,11 @@ impl Sudoku {
 
         for i in 0..GRID_SIZE {
             if i % GRID_SQRT == 0  { print!("{}", style(" │").green()); }        
-            print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow().bright());
+            if self.cell_choices[i] == 0 {
+                print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow().bright());
+            } else {
+                print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow());
+            }
             let i1 = i+1;
             if i1 % GRID_BLCK == 0 { print!("{}", style("│").green() ); }      
             if i1 != GRID_SIZE {                            
@@ -266,6 +357,11 @@ impl Sudoku {
         println!();
         println!( "{}", style( &line ).green() );
         println!();
+        if self.solutions != self.limit {
+            term.move_cursor_up( GRID_SQRT+GRID_BLCK+3 ).ok();
+            term.show_cursor().ok();
+            // term.read_char().ok();
+        }
     }
 
     fn solve_fast( &mut self, limit: usize) {
@@ -281,6 +377,9 @@ impl Sudoku {
     }
 
     fn solve_recursive_fast( &mut self ) { 
+        if self.app_options.verbose && self.app_options.debug { 
+            self.display( format!("....solving......") );
+        }
         for i in 0..GRID_SIZE {
             if self.puzzle[ i ] == 0 {
                 let b: usize = self.invalid_values_as_bits( i );
@@ -340,7 +439,8 @@ impl Sudoku {
         self.solve_random( 1 );
 
         // create a new board and poulate with solution 
-        let mut new = Sudoku::new();
+        let app_options = self.app_options.clone();
+        let mut new = Sudoku::new( app_options );
         new.initialize_with_array( self.puzzle );
     
         // list to randomly remove numbers from solved board
@@ -353,13 +453,28 @@ impl Sudoku {
             let save_item = new.puzzle[ removelist[i] ];
             new.puzzle[ removelist[i] ] = 0;
             self.initialize_with_array( new.puzzle );
+            if self.app_options.debug { 
+                self.display( format!("Removing {} : {}   ", i, removelist[i]) );
+            }
+            let now = Instant::now();
             self.solve_fast( 2 );
             if self.solutions != 1 {
                 new.puzzle[ removelist[i] ] = save_item;
             }
+            if !self.app_options.debug && (now.elapsed().as_millis() > 1500) {
+                break;
+            }
         }
         // transfer values from the new puzzle
+        if self.app_options.debug { 
+            self.solutions = 1;
+            self.limit = 1;
+            self.display( format!("With solution...              ") );
+        }
         self.initialize_with_array( new.puzzle );
+        if self.app_options.debug { 
+            self.solutions = 1
+        }
     }
 
     fn shuffle<T>(v: &mut [T]) {
