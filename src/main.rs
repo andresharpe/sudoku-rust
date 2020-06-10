@@ -100,6 +100,7 @@ _\ \ |_| | (_| | (_) |   <| |_| |
     println!("{}",style("SUDOKU Solver & Generator").green().bright());
     println!("{}",style(" made with Rust in 2020").white());
     println!("");
+    println!(" {} {}", style("build version.....").white(), style( format!( "{}x{}", GRID_BLCK, GRID_BLCK ) ).green() );
     println!(" {} {}", style("mode..............").white(), style( if app_options.generate { "generate" } else { "solve" }).green() );
     if app_options.generate { println!(" {} {}", style("number of puzzles.").white(), style(app_options.number ).green()) }
     println!(" {} {}", style("debug.............").white(), style(if app_options.debug { "yes" } else { "no" }).green() );
@@ -114,7 +115,8 @@ _\ \ |_| | (_| | (_) |   <| |_| |
     let speed = f64::from( count )/(millisecs/1000.0f64);
     let line = format!("Elapsed time: {:.3} seconds. Puzzles completed: {}. Peformance: {:.3} puzzles/second.", millisecs/1000.0f64, count, speed );
     println!("{}",style(line).white());
-
+    let term = Term::stdout();
+    term.show_cursor().ok();
 }
 
 #[derive(Clone, Debug)]
