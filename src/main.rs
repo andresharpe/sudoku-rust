@@ -60,11 +60,6 @@ fn main() {
             .takes_value(false)
             .conflicts_with("solve")
             .help("Generates puzzles and appends them to a text file"))
-        .arg(Arg::with_name("crooks")
-            .short("c")
-            .long("crooks")
-            .takes_value(false)
-            .help("Use Crook's algorithm instead of brute force."))
         .arg(Arg::with_name("debug")
             .short("d")
             .long("debug")
@@ -96,13 +91,12 @@ fn main() {
     let filename = String::from( matches.value_of("file").unwrap_or(".\\puzzle.txt") );
     let output_solutions = matches.is_present("output");
     let number = matches.value_of("number").unwrap_or("10").parse::<usize>().unwrap_or(10);
-    let crooks = matches.is_present("crooks");
     let debug = matches.is_present("debug");
     let generate = matches.is_present("generate");
     let verbose = matches.is_present("verbose");
     let mut solutions_filename = filename.clone();
     solutions_filename.push_str(".solutions");
-    let app_options = AppOptions{ filename, solutions_filename, output_solutions, number, crooks, debug, generate, verbose };
+    let app_options = AppOptions{ filename, solutions_filename, output_solutions, number, debug, generate, verbose };
 
     let banner =
 r" __           _       _          
@@ -141,7 +135,6 @@ struct AppOptions {
     solutions_filename: String,
     output_solutions: bool,
     number: usize,
-    crooks: bool,
     debug: bool,
     generate: bool,
     verbose: bool,
@@ -153,7 +146,7 @@ struct Sudoku {
     solutions: usize,
     limit: usize,
     app_options: AppOptions,
-    cell_choices: Vec<Vec<usize>>,
+    markup: [usize; GRID_SIZE],
 }
 
 impl Sudoku {
@@ -175,30 +168,12 @@ impl Sudoku {
     }
 
     fn new( app_options: AppOptions ) -> Sudoku {
-        let mut choices = Vec::new();
-        for _i in 0..GRID_SIZE {
-            choices.push(Vec::new());
-        }
         Sudoku {
             puzzle: [0; GRID_SIZE],
             solutions: 0,
             limit: 1,
             app_options,
-            cell_choices: choices,
-        }
-    }
-
-    fn calculate_cell_choices( &mut self ) {
-        for i in 0..GRID_SIZE {
-            if self.puzzle[i] == 0 {
-                let b = self.invalid_values_as_bits(i);
-                self.cell_choices[i].clear();
-                for value in 1..GRID_SQRT+1 {
-                    if  ( b & NUM_TO_BITMAP[ value ] ) == 0 {
-                        self.cell_choices[i].push( value );
-                    }
-                }
-            }
+            markup: [0 ; GRID_SIZE],
         }
     }
 
@@ -206,37 +181,76 @@ impl Sudoku {
         self.clear();
         let bytes = str_puzzle.as_bytes();
         if bytes.len() == GRID_SIZE {
-            for (i,&b) in bytes.iter().enumerate() {
+            for (pos,&b) in bytes.iter().enumerate() {
                 if (b >= b'1') && (b <= b'9') {
-                    self.puzzle[ i ] = (b - 48) as usize 
+                    self.puzzle[ pos ] = (b - 48) as usize 
                 } else if (b >= b'A') && (b <= b'F') {
-                    self.puzzle[ i ] = (b - 55) as usize 
+                    self.puzzle[ pos ] = (b - 55) as usize 
                 } else if b == b'0' {
-                    self.puzzle[ i ] = 16 
+                    self.puzzle[ pos ] = 16 
                 } else { 
-                    self.puzzle[ i ] = 0 
+                    self.puzzle[ pos ] = 0 
                 };
             }
             if self.app_options.debug {
-                self.calculate_cell_choices();
+                self.do_markup();
             }
         }
     }
 
     fn initialize_with_array( &mut self, a_puzzle: [usize;GRID_SIZE] ) {
         self.clear();
-        for (i,&v) in a_puzzle.iter().enumerate() {
-            self.puzzle[ i ] = v;
+        for (pos,&val) in a_puzzle.iter().enumerate() {
+            self.puzzle[ pos ] = val;
         }
         if self.app_options.debug {
-            self.calculate_cell_choices();
+            self.do_markup();
         }
     }
 
     fn clear( &mut self ) {
         self.solutions = 0;
-        for i in 0..GRID_SIZE { self.puzzle[i] = 0; self.cell_choices[i].clear(); }
+        for i in 0..GRID_SIZE { self.puzzle[i] = 0; self.markup[i] = 0; }
     }
+
+    fn init_markup( &mut self ) {
+        for pos in 0..GRID_SIZE {
+            if self.puzzle[ pos ] != 0 {
+                self.markup[ pos ] = usize::MAX;
+            }
+        }
+    }
+
+    fn do_markup( &mut self ) {
+        self.init_markup();
+        for pos in 0..GRID_SIZE {
+            if self.puzzle[ pos ] == 0 {
+                self.markup[ pos ] = self.invalid_values_as_bits(pos);
+            } else if self.markup[ pos ] != usize::MAX  {
+                self.markup[ pos ] = 0;
+            }
+        }
+    }
+
+    fn set_value( &mut self, pos: usize, num: usize ){
+        let y = pos / GRID_SQRT;
+        let x = pos % GRID_SQRT;
+        let topleft = ( y / GRID_BLCK ) * GRID_BLCK * GRID_SQRT + ( x / GRID_BLCK ) * GRID_BLCK; 
+        self.puzzle[ pos ] = num;
+        let bitmap = NUM_TO_BITMAP[ num ];
+        for n in 0..GRID_SQRT {
+            let p = n * GRID_SQRT + x;
+            if self.puzzle[ p ] == 0 { self.markup[ p ] |= bitmap; }
+            let p = y * GRID_SQRT + n;
+            if self.puzzle[ p ] == 0 { self.markup[ p ] |= bitmap; }
+            let p = topleft + ( n % GRID_BLCK ) * GRID_SQRT + ( n / GRID_BLCK  );
+            if self.puzzle[ p ] == 0 { self.markup[ p ] |= bitmap; }
+        }
+        if self.markup[ pos ] != usize::MAX {
+            self.markup[ pos ] = 0;
+        }
+    }
+
 
     fn to_string( &self ) -> String {
         let mut s_puzzle = String::new();
@@ -258,16 +272,12 @@ impl Sudoku {
             if str_puzzle.len() == GRID_SIZE {
                 self.initialize_with_string( str_puzzle );
                 if self.app_options.debug {
-                    self.calculate_cell_choices();
                     self.solutions = 1;
                     self.display( format!("Attempting puzzle #{}...", result+1) );
                     self.solutions = 0;
                 }
-                if self.app_options.crooks {
-                    self.solve_crooks();
-                } else {
-                    self.solve_fast( 1 );
-                }
+                // self.solve_fast( 1 );
+                self.solve_overeasy( 1 );
                 if self.solutions == 1 {
                     if self.app_options.debug {
                         self.display( format!("...solved puzzle #{}", result+1) );
@@ -288,6 +298,7 @@ impl Sudoku {
         let filename = self.app_options.filename.clone();
         let mut result = 0;
         let puzzle_file_exist = std::path::Path::new( &filename ).exists();
+        let mut buffer = String::with_capacity((GRID_SIZE+1) * self.app_options.number);
         let mut puzzle_file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -299,15 +310,19 @@ impl Sudoku {
             if self.app_options.debug { 
                 self.display( format!("...generated puzzle {} of {}:", i+1, self.app_options.number ) );
             }
-            if puzzle_file_exist || result > 0 { puzzle_file.write_all("\n".as_bytes()).expect("Write failed."); }
-            puzzle_file.write_all(self.to_string().as_bytes()).expect("Write failed.");
+            if puzzle_file_exist || result > 0 { 
+                buffer.push('\n'); 
+            }
+            buffer.push_str(&self.to_string());
             if self.app_options.output_solutions {
                 self.solve_fast( 1 );
                 self.output_solution_to_file( true );
             }
             result += 1;
         }
-        return result;
+        puzzle_file.write_all(buffer.as_bytes()).expect("Write failed.");
+        
+        result
     }
 
     fn output_solution_to_file( &self, newline: bool ) {
@@ -354,7 +369,7 @@ impl Sudoku {
 
         for i in 0..GRID_SIZE {
             if i % GRID_SQRT == 0  { print!("{}", style(" │").green()); }        
-            if self.cell_choices[i].len() == 0 {
+            if self.markup[i] == usize::MAX {
                 print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow().bright());
             } else {
                 print!(" {} ", style( NUM_TO_TEXT[ self.puzzle[i] ] ).yellow());
@@ -399,10 +414,90 @@ impl Sudoku {
         self.solve_recursive_random();
     }
 
-    fn solve_crooks( &mut self ) {
-        self.solutions = 0;
-        self.limit = 1;
-        self.solve_crooks_algo();
+    // solves easy cells (lone rangers), then fast
+    fn solve_overeasy( &mut self, limit: usize ) {
+        let mut r_solved; // row
+        let mut c_solved; // column
+        let mut b_solved; // block
+
+        self.do_markup();
+        loop {
+
+            r_solved = 0;
+            for num in 1..GRID_SQRT+1 {
+                let bitmap = NUM_TO_BITMAP[ num ];
+                for r in 0..GRID_SQRT {
+                    let mut count = 0;
+                    let mut pos = 0;
+                    for c in 0..GRID_SQRT {
+                        let p = r*GRID_SQRT + c;
+                        if self.puzzle[ p ] == 0 && (( self.markup[ p ] & bitmap ) == 0) {
+                            count+= 1;
+                            if count > 1 { break; }
+                            pos = p;
+                        }
+                    }
+                    if count == 1 {
+                        self.set_value(pos, num);
+                        r_solved += 1;
+                    }
+                }
+            }
+
+            c_solved = 0;
+            for num in 1..GRID_SQRT+1 {
+                let bitmap = NUM_TO_BITMAP[ num ];
+                for c in 0..GRID_SQRT {
+                    let mut count = 0;
+                    let mut pos = 0;
+                    for r in 0..GRID_SQRT {
+                        let p = r*GRID_SQRT + c;
+                        if self.puzzle[ p ] == 0 && (( self.markup[ p ] & bitmap ) == 0) {
+                            count+= 1;
+                            if count > 1 { break; }
+                            pos = p;
+                        }
+                    }
+                    if count == 1 {
+                        self.set_value(pos, num);
+                        c_solved += 1;
+                    }
+                }
+            }
+
+            b_solved = 0;
+            for num in 1..GRID_SQRT+1 {
+                let bitmap = NUM_TO_BITMAP[ num ];
+                for b in 0..GRID_SQRT {
+                    let mut count = 0;
+                    let mut pos = 0;
+                    let tl = (b/GRID_BLCK)*GRID_SQRT*GRID_BLCK + (b % GRID_BLCK)*GRID_BLCK;
+                    for r in 0..GRID_BLCK {
+                        for c in 0..GRID_BLCK {
+                            let p = tl + r*GRID_SQRT + c;
+                            if self.puzzle[ p ] == 0 && (( self.markup[ p ] & bitmap ) == 0) {
+                                count+= 1;
+                                if count > 1 { break; }
+                                pos = p;
+                            }
+                            if count > 1 { break; }
+                        }
+                    }
+                    if count == 1 {
+                        self.set_value(pos, num);
+                        b_solved += 1;
+                    }
+                }
+            }
+
+            if r_solved + c_solved + b_solved == 0 {
+                break;
+            }
+
+        }
+
+        self.solve_fast( limit );
+
     }
 
     fn solve_recursive_fast( &mut self ) { 
@@ -447,25 +542,6 @@ impl Sudoku {
         self.solutions += 1;  // only reaches this point recursively when all cells are solved
     }
 
-    fn solve_crooks_algo( &mut self ) { 
-        let mut found = true;
-        loop {
-            if !found { break; }
-            self.calculate_cell_choices();
-            found = false;
-            for i in 0..GRID_SIZE {
-                if self.puzzle[ i ] == 0 {
-                    if self.cell_choices[ i ].len() == 1 {
-                        self.puzzle[ i ] = self.cell_choices[ i ][0];
-                        found = true;
-                    }
-                }
-            }
-        }
-        self.solutions += 1;  // only reaches this point recursively when all cells are solved
-    }
-    
-
     fn invalid_values_as_bits( &self, pos: usize ) -> usize {
         let y = pos / GRID_SQRT;
         let x = pos % GRID_SQRT;
@@ -477,7 +553,7 @@ impl Sudoku {
                 | NUM_TO_BITMAP[ self.puzzle[ y * GRID_SQRT + n ] ]  // check row
                 | NUM_TO_BITMAP[ self.puzzle[ topleft + ( n % GRID_BLCK ) * GRID_SQRT + ( n / GRID_BLCK  ) ] ] ; // check block
         }
-        return bits;
+        bits
     }
 
     fn generate( &mut self ) {
@@ -505,7 +581,7 @@ impl Sudoku {
                 self.display( format!("Removing {} : {}   ", i, removelist[i]) );
             }
             let now = Instant::now();
-            self.solve_fast( 2 );
+            self.solve_overeasy( 2 );
             if self.solutions != 1 {
                 new.puzzle[ removelist[i] ] = save_item;
             }
