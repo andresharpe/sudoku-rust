@@ -245,21 +245,14 @@ impl Sudoku {
     
     fn solve_puzzles_from_file( &mut self ) -> io::Result<i32> {
         let filename = self.app_options.filename.clone();
-        let solution_filename = self.app_options.solutions_filename.clone();
         let puzzle_file = File::open( &filename )?;
         let puzzle_file = BufReader::new( puzzle_file );
+        let mut solution_buffer = String::with_capacity((GRID_SIZE+1) * self.app_options.number);
         let mut result = 0;
-        let mut solution_file;
 
         if self.app_options.output_solutions { 
-            fs::remove_file(&solution_filename).ok(); 
+            fs::remove_file(self.app_options.solutions_filename.clone()).ok(); 
         }
-        solution_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(&solution_filename)
-            .unwrap();
 
         for line in puzzle_file.lines() {
             let str_puzzle = line.unwrap();
@@ -279,58 +272,70 @@ impl Sudoku {
                     println!( "There is no solution for puzzle #{}.", result+1);
                 }
                 if self.app_options.output_solutions {
-                    // self.output_solution_to_file( result > 0 );
                     let s_puzzle;
                     if self.solution_count == 0 {
                         s_puzzle = std::iter::repeat(".").take( GRID_SIZE ).collect::<String>();
                     } else {
                         s_puzzle = self.to_string();
                     }
-                    if result > 0 { solution_file.write_all("\n".as_bytes()).expect("Write failed.") }; 
-                    solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
+                    if result > 0 { solution_buffer += "\n"; } 
+                    solution_buffer += &s_puzzle;
                 }
                 result += 1;
             }
+        }
+        if self.app_options.output_solutions {
+            self.write_solutions_to_file(solution_buffer);
         }
         Ok(result)
     }
 
     fn generate_puzzles_to_file( &mut self ) -> i32 {
-        let filename = self.app_options.filename.clone();
+        let puzzle_file_exist = std::path::Path::new( &self.app_options.filename.clone() ).exists();
+        let mut puzzle_buffer = String::with_capacity((GRID_SIZE+1) * self.app_options.number);
+        let mut solution_buffer = String::with_capacity((GRID_SIZE+1) * self.app_options.number);
         let mut result = 0;
-        let puzzle_file_exist = std::path::Path::new( &filename ).exists();
-        let mut buffer = String::with_capacity((GRID_SIZE+1) * self.app_options.number);
-        let mut puzzle_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(&filename)
-            .unwrap();
-        let mut solution_file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(self.app_options.solutions_filename.clone())
-            .unwrap();
         for i in 0..self.app_options.number {
             self.generate();
             if self.app_options.debug { 
                 self.display( format!("...generated puzzle {} of {}:", i+1, self.app_options.number ) );
             }
             if puzzle_file_exist || result > 0 { 
-                buffer += "\n"; 
+                puzzle_buffer += "\n"; 
             }
-            buffer += &self.to_string();
+            puzzle_buffer += &self.to_string();
             if self.app_options.output_solutions {
                 self.solve_fast( 1 );
-                let s_puzzle = self.to_string();
-                solution_file.write_all("\n".as_bytes()).expect("Write failed."); 
-                solution_file.write_all(s_puzzle.as_bytes()).expect("Write failed.");
+                solution_buffer += "\n";
+                solution_buffer += &self.to_string();
             }
             result += 1;
         }
-        puzzle_file.write_all(buffer.as_bytes()).expect("Write failed.");
+        self.write_puzzles_to_file(puzzle_buffer);
+        if self.app_options.output_solutions {
+            self.write_solutions_to_file(solution_buffer);
+        }
         result
+    }
+
+    fn write_puzzles_to_file( &self, buffer: String ) {
+        let mut puzzle_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(self.app_options.filename.clone())
+            .unwrap();
+        puzzle_file.write_all(buffer.as_bytes()).expect("Write failed.");
+    }
+
+    fn write_solutions_to_file( &self, buffer: String ) {
+        let mut solution_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open(self.app_options.solutions_filename.clone())
+            .unwrap();
+        solution_file.write_all(buffer.as_bytes()).expect("Write failed."); 
     }
 
     fn display( &self, heading: String ) {
